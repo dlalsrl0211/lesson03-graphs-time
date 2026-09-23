@@ -1,3 +1,6 @@
+import io
+import urllib.request
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -10,17 +13,25 @@ st.set_page_config(
 
 DATA_URL = "https://raw.githubusercontent.com/greatsong/modudata/main/data/kobis_daily.csv"
 
-st.title("영화 데이터 그래프 도감 1 - 시간")
-st.markdown("1년치 일별 박스오피스 데이터를 시간의 흐름에 따라 살펴봅니다.")
 
-# -------------------------------------------------------------------
-# 데이터 불러오기
-# -------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    df = pd.read_csv(DATA_URL)
+    # Streamlit Cloud에서 pandas가 URL을 직접 열 때 발생할 수 있는
+    # HTTP 오류를 피하기 위해 User-Agent를 붙여 먼저 파일을 내려받습니다.
+    request = urllib.request.Request(
+        DATA_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Streamlit; +https://streamlit.io)",
+            "Accept": "text/csv,text/plain,*/*",
+        },
+    )
 
-    # 날짜: 하이픈 없는 8자리 숫자(예: 20250101) → 실제 날짜형
+    with urllib.request.urlopen(request, timeout=30) as response:
+        content = response.read()
+
+    df = pd.read_csv(io.BytesIO(content), encoding="utf-8-sig")
+
+    # 날짜: 하이픈 없는 8자리 숫자(예: 20250901) → 실제 날짜형
     df["날짜"] = pd.to_datetime(
         df["날짜"].astype(str).str.replace(r"\.0$", "", regex=True),
         format="%Y%m%d",
@@ -32,10 +43,26 @@ def load_data():
     for col in numeric_columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    return df.dropna(subset=["날짜", "영화명", "일관객"]).sort_values("날짜")
+    return (
+        df.dropna(subset=["날짜", "영화명", "일관객"])
+        .sort_values("날짜")
+        .reset_index(drop=True)
+    )
 
 
-df = load_data()
+st.title("영화 데이터 그래프 도감 1 - 시간")
+st.markdown("1년치 일별 박스오피스 데이터를 시간의 흐름에 따라 살펴봅니다.")
+
+try:
+    df = load_data()
+except Exception as e:
+    st.error("데이터를 불러오지 못했습니다.")
+    st.info(
+        "GitHub의 데이터 주소에 일시적으로 접근할 수 없거나 "
+        "네트워크 문제가 발생했을 수 있습니다. 잠시 후 다시 실행해 주세요."
+    )
+    st.stop()
+
 
 # -------------------------------------------------------------------
 # 그래프 1. 영화별 일관객 변화
@@ -43,13 +70,18 @@ df = load_data()
 st.header("그래프 1. 영화별 일관객 변화")
 
 movie_list = sorted(df["영화명"].dropna().unique())
+
 selected_movie = st.selectbox(
     "영화를 선택하세요.",
     movie_list,
     key="movie_select",
 )
 
-movie_df = df[df["영화명"] == selected_movie].sort_values("날짜")
+movie_df = (
+    df[df["영화명"] == selected_movie]
+    .sort_values("날짜")
+    .copy()
+)
 
 fig = px.line(
     movie_df,
@@ -61,10 +93,6 @@ fig = px.line(
         "날짜": "날짜",
         "일관객": "일관객",
     },
-    hover_data={
-        "날짜": "|%Y-%m-%d",
-        "일관객": ":,",
-    },
 )
 
 fig.update_traces(
@@ -72,7 +100,7 @@ fig.update_traces(
 )
 
 fig.update_layout(
-    hovermode="x unified",
+    hovermode="x",
     xaxis_title="날짜",
     yaxis_title="일관객",
 )
@@ -82,12 +110,14 @@ st.plotly_chart(fig, use_container_width=True)
 st.markdown("**이 그래프로 알 수 있는 것:**")
 st.caption("선택한 영화의 일별 관객수가 시간에 따라 어떻게 변했는지 확인할 수 있습니다.")
 
+
 # -------------------------------------------------------------------
 # 그래프 2. 앞으로 추가할 영역
 # -------------------------------------------------------------------
 st.divider()
 st.header("그래프 2")
 st.info("앞으로 추가할 그래프 영역입니다.")
+
 
 # -------------------------------------------------------------------
 # 그래프 3. 앞으로 추가할 영역
